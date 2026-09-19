@@ -150,7 +150,7 @@
   border-radius: 7px;
   background: rgba(255, 255, 255, .9);
   display: grid;
-  grid-template-columns: auto auto 1fr auto auto;
+  grid-template-columns: auto auto 1fr auto;
   align-items: center;
   gap: 8px;
   color: #315064;
@@ -190,20 +190,15 @@
 }
 
 .confirm-reading {
-  min-height: 34px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 5px;
-  background: #f2bf26;
-  color: #4f3b00;
+  grid-column: 2;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 2px solid #2788b3;
+  border-radius: 7px;
+  background: #e8f7ff;
+  color: #176e98;
   font-weight: 900;
-  box-shadow: 0 3px 0 #b98111;
-}
-
-.confirm-reading.confirmed {
-  background: #dce8dd;
-  color: #4d7252;
-  box-shadow: none;
+  box-shadow: 0 4px 0 #91bdcf;
 }
 
 .reading-gate-tip {
@@ -243,8 +238,13 @@
     padding: 0 12px;
   }
 
+  .confirm-reading {
+    min-height: 40px;
+    padding: 0 12px;
+  }
+
   .reading-result {
-    grid-template-columns: auto 1fr auto auto;
+    grid-template-columns: auto 1fr auto;
   }
 
   .reading-result small {

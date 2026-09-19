@@ -474,8 +474,8 @@ function FollowRead({ word, confirmed, onStart, onScore, onConfirm }) {
       <strong>{result.stars} 星</strong>
       <small>识别：{result.transcript}</small>
       <b>{result.deduction ? `-${result.deduction} 积分` : '积分不变'}</b>
-      <button className={`confirm-reading ${confirmed ? 'confirmed' : ''}`} onClick={() => { playClick('success'); onConfirm(); }} disabled={confirmed}>{confirmed ? '已确认' : '确认跟读'}</button>
     </div>}
+    {result && !result.error && <button className="confirm-reading" onClick={() => { playClick('success'); onConfirm(); }} disabled={confirmed}>确认</button>}
   </div>;
 }
 
