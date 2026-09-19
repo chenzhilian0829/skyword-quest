@@ -1,8 +1,27 @@
+param(
+  [Parameter(Mandatory = $false)]
+  [string]$SourcePath
+)
+
 $ErrorActionPreference = 'Stop'
 
-$source = Get-ChildItem -LiteralPath 'C:\Users\Administrator\Desktop' -Filter '*.doc' |
-  Where-Object Length -eq 77312 |
-  Select-Object -First 1 -ExpandProperty FullName
+if (-not $SourcePath) {
+  $preferred = 'C:\Users\Administrator\Desktop\单词库.doc'
+  if (Test-Path -LiteralPath $preferred) {
+    $SourcePath = $preferred
+  } else {
+    $SourcePath = Get-ChildItem -LiteralPath 'C:\Users\Administrator\Desktop' -File |
+      Where-Object Extension -in '.doc', '.docx' |
+      Sort-Object LastWriteTime -Descending |
+      Select-Object -First 1 -ExpandProperty FullName
+  }
+}
+
+if (-not $SourcePath -or -not (Test-Path -LiteralPath $SourcePath)) {
+  throw '找不到 Word 题库。请使用 -SourcePath 指定 .doc 或 .docx 文件。'
+}
+
+$source = (Resolve-Path -LiteralPath $SourcePath).Path
 $output = Join-Path $PSScriptRoot '..\src\data\questions.js'
 
 function Test-Chinese([string]$value) {
