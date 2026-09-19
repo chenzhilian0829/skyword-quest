@@ -1,0 +1,51 @@
+.pixel-avatar {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  background: #50ac45;
+  border: 4px solid #2d6c35;
+  box-shadow: 3px 3px 0 rgba(25, 54, 58, 0.2);
+  image-rendering: pixelated;
+}
+
+.pixel-avatar::before,
+.pixel-avatar::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  width: 7px;
+  height: 8px;
+  background: #173b28;
+}
+
+.pixel-avatar::before { left: 6px; }
+.pixel-avatar::after { right: 6px; }
+.pixel-avatar i { position: absolute; left: 13px; top: 17px; width: 6px; height: 6px; background: #173b28; }
+.pixel-avatar b { position: absolute; left: 8px; bottom: 4px; width: 16px; height: 5px; background: #173b28; }
+.avatar-2 { background: #242431; border-color: #11111a; }
+.avatar-2::before,
+.avatar-2::after { height: 5px; background: #b855e8; box-shadow: 0 0 5px #d681ff; }
+.avatar-2 i,
+.avatar-2 b { display: none; }
+.avatar-3 { background: #55a7ca; border-color: #28627a; }
+.avatar-4 { background: #d5a64c; border-color: #865d24; }
+.avatar-5 { background: #d66c65; border-color: #833936; }
+.avatar-6 { background: #e9dfc6; border-color: #8a806e; }
+.avatar-7 { background: #8058a8; border-color: #493360; }
+.avatar-8 { background: #73a455; border-color: #405d31; }
+.level-tile.done .pixel-avatar { box-shadow: 0 0 0 3px #b9e5ae, 3px 3px 0 rgba(25, 54, 58, 0.2); }
+
+.answer-explanation {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border-left: 5px solid #4ead49;
+  background: #edf9eb;
+  display: grid;
+  gap: 4px;
+  color: #315339;
+}
+
+.answer-explanation span {
+  font-size: 14px;
+  color: #5d7862;
+}

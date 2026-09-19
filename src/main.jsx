@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowLeft, BookOpenCheck, Check, ChevronRight, Gift, Home,
@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { QUESTIONS, WORD_BANK_META } from './data/questions.js';
 import './styles.css';
+import './enhancements.css';
+import './scene-backgrounds.css';
 
 const STORAGE_KEY = 'skyword-quest-v1';
 const INITIAL_STATE = { points: 0, unlockedLevel: 1, completed: {}, wrongIds: [], claimed: [] };
@@ -41,16 +43,71 @@ function playClick(tone = 'tap') {
   oscillator.stop(now + 0.13);
 }
 
+function audioContext() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return null;
+  const ctx = playClick.ctx || (playClick.ctx = new AudioContext());
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+function playCorrectSound() {
+  const ctx = audioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5].forEach((frequency, index) => {
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = now + index * 0.075;
+    oscillator.type = index < 4 ? 'triangle' : 'sine';
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.linearRampToValueAtTime(0.075, start + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
+    oscillator.connect(gain).connect(ctx.destination);
+    oscillator.start(start);
+    oscillator.stop(start + 0.21);
+  });
+}
+
+function playErrorSound() {
+  const ctx = audioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const oscillator = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const filter = ctx.createBiquadFilter();
+  oscillator.type = 'sine';
+  oscillator.frequency.setValueAtTime(155, now);
+  oscillator.frequency.exponentialRampToValueAtTime(92, now + 0.7);
+  filter.type = 'lowpass';
+  filter.frequency.value = 420;
+  gain.gain.setValueAtTime(0.001, now);
+  gain.gain.linearRampToValueAtTime(0.09, now + 0.04);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+  oscillator.connect(filter).connect(gain).connect(ctx.destination);
+  oscillator.start(now);
+  oscillator.stop(now + 0.82);
+}
+
 function speak(word) {
   playClick();
+  pronounce(word, 1);
+}
+
+function pronounce(word, times = 1) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
-  const speech = new SpeechSynthesisUtterance(word.replace(/=.*/, '').trim());
-  speech.lang = 'en-US';
-  speech.rate = 0.82;
   const voices = window.speechSynthesis.getVoices();
-  speech.voice = voices.find((voice) => voice.lang === 'en-US') || voices.find((voice) => voice.lang.startsWith('en')) || null;
-  window.speechSynthesis.speak(speech);
+  const voice = voices.find((item) => item.lang === 'en-US') || voices.find((item) => item.lang.startsWith('en')) || null;
+  for (let index = 0; index < times; index += 1) {
+    const speech = new SpeechSynthesisUtterance(word.replace(/=.*/, '').trim());
+    speech.lang = 'en-US';
+    speech.rate = 0.78;
+    speech.pitch = 1;
+    speech.voice = voice;
+    window.speechSynthesis.speak(speech);
+  }
 }
 
 function rewardFor(wrong) {
@@ -66,10 +123,24 @@ function App() {
   const [activeLevel, setActiveLevel] = useState(null);
   const [session, setSession] = useState(null);
   const [rewardModal, setRewardModal] = useState(null);
+  const autoAdvanceTimer = useRef(null);
+  const pronunciationTimer = useRef(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
   }, [progress]);
+
+  useEffect(() => () => {
+    clearTimeout(autoAdvanceTimer.current);
+    clearTimeout(pronunciationTimer.current);
+    window.speechSynthesis?.cancel();
+  }, []);
+
+  function schedulePronunciation(word) {
+    clearTimeout(pronunciationTimer.current);
+    window.speechSynthesis?.cancel();
+    pronunciationTimer.current = setTimeout(() => pronounce(word, 2), 1000);
+  }
 
   const wrongQuestions = useMemo(
     () => progress.wrongIds.map((id) => QUESTIONS.find((q) => q.id === id)).filter(Boolean),
@@ -84,6 +155,7 @@ function App() {
     setActiveLevel(level);
     setSession({ questions, index: 0, answers: [], selected: null, options: makeOptions(questions[0]) });
     setView('quiz');
+    schedulePronunciation(questions[0].word);
     playClick('success');
   }
 
@@ -97,24 +169,30 @@ function App() {
     if (session.selected !== null) return;
     const current = session.questions[session.index];
     const correct = option === current.meaning;
-    playClick(correct ? 'success' : 'error');
-    setSession({ ...session, selected: option, answers: [...session.answers, { id: current.id, correct }] });
+    const answers = [...session.answers, { id: current.id, correct }];
+    correct ? playCorrectSound() : playErrorSound();
+    setSession({ ...session, selected: option, answers });
+    if (correct) {
+      clearTimeout(autoAdvanceTimer.current);
+      autoAdvanceTimer.current = setTimeout(() => advanceQuestion(answers, true), 800);
+    }
   }
 
-  function nextQuestion() {
-    playClick();
+  function advanceQuestion(answers = session.answers, silent = false) {
+    if (!silent) playClick();
     if (session.index < session.questions.length - 1) {
       const index = session.index + 1;
-      setSession({ ...session, index, selected: null, options: makeOptions(session.questions[index]) });
+      setSession((currentSession) => ({ ...currentSession, answers, index, selected: null, options: makeOptions(currentSession.questions[index]) }));
+      schedulePronunciation(session.questions[index].word);
       return;
     }
     if (view === 'review') {
-      const correctIds = session.answers.filter((item) => item.correct).map((item) => item.id);
+      const correctIds = answers.filter((item) => item.correct).map((item) => item.id);
       setProgress({ ...progress, wrongIds: progress.wrongIds.filter((id) => !correctIds.includes(id)) });
-      const wrong = session.answers.filter((item) => !item.correct).length;
-      setSession({ ...session, result: { score: session.answers.length - wrong, wrong, reward: 0 } });
+      const wrong = answers.filter((item) => !item.correct).length;
+      setSession((currentSession) => ({ ...currentSession, answers, result: { score: answers.length - wrong, wrong, reward: 0 } }));
     } else {
-      finishLevel(session.answers);
+      finishLevel(answers);
     }
   }
 
@@ -151,8 +229,8 @@ function App() {
         {view === 'levels' && <Levels progress={progress} onStart={startLevel} />}
         {view === 'wrong' && <WrongBook questions={wrongQuestions} onReview={() => wrongQuestions.length && startReview(wrongQuestions, setSession, setView)} />}
         {view === 'rewards' && <Rewards points={progress.points} claimed={progress.claimed} />}
-        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={nextQuestion} onSpeak={speak} onExit={() => go('levels')} />}
-        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={nextQuestion} onSpeak={speak} onExit={() => go('wrong')} review />}
+        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onExit={() => go('levels')} />}
+        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onExit={() => go('wrong')} review />}
       </section>
       {rewardModal && <RewardModal threshold={rewardModal} onClose={() => { playClick('success'); setRewardModal(null); }} />}
     </main>
@@ -203,7 +281,7 @@ function Levels({ progress, onStart }) {
     <div className="level-grid">{Array.from({ length: WORD_BANK_META.levelCount }, (_, index) => {
       const level = index + 1; const locked = level > progress.unlockedLevel; const score = progress.completed[level];
       return <button key={level} className={`level-tile ${locked ? 'locked' : ''} ${score !== undefined ? 'done' : ''}`} onClick={() => onStart(level)}>
-        {locked ? <LockKeyhole/> : score !== undefined ? <Check/> : <span className="level-number">{level}</span>}
+        {locked ? <LockKeyhole/> : <span className={`pixel-avatar avatar-${(index % 8) + 1}`}><i/><b/></span>}
         <strong>第 {level} 关</strong><small>{score !== undefined ? `${score} / 20` : locked ? '尚未解锁' : '开始挑战'}</small>
       </button>;
     })}</div>
@@ -213,7 +291,8 @@ function Levels({ progress, onStart }) {
 function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, review }) {
   if (session.result) return <Result result={session.result} onExit={onExit} review={review}/>;
   const current = session.questions[session.index];
-  return <div className="quiz-panel panel">
+  const sceneClass = typeof level === 'number' ? `scene-${((level - 1) % 16) + 1}` : 'scene-review';
+  return <div className={`quiz-panel panel ${sceneClass}`}>
     <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><small>{session.index + 1} / {session.questions.length}</small></div></div>
     <div className="quiz-progress"><span style={{ width: `${((session.index + 1) / session.questions.length) * 100}%` }}/></div>
     <p className="prompt">选择正确的中文释义</p>
@@ -222,7 +301,8 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, review }) {
       const chosen = session.selected === option; const correct = option === current.meaning; const revealed = session.selected !== null;
       return <button key={option} className={`${chosen ? 'chosen' : ''} ${revealed && correct ? 'correct' : ''} ${chosen && !correct ? 'incorrect' : ''}`} onClick={() => onAnswer(option)}><span>{String.fromCharCode(65 + index)}</span>{option}{revealed && correct && <Check/>}{chosen && !correct && <X/>}</button>;
     })}</div>
-    {session.selected !== null && <button className="primary-btn" onClick={onNext}>{session.index === session.questions.length - 1 ? '查看结果' : '下一题'}<ChevronRight/></button>}
+    {session.selected !== null && session.selected !== current.meaning && <div className="answer-explanation"><strong>正确答案：{current.meaning}</strong><span>解析：“{current.word}”的中文意思是“{current.meaning}”。</span></div>}
+    {session.selected !== null && session.selected !== current.meaning && <button className="primary-btn" onClick={onNext}>{session.index === session.questions.length - 1 ? '查看结果' : '下一题'}<ChevronRight/></button>}
   </div>;
 }
 
