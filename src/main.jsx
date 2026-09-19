@@ -1,0 +1,246 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  ArrowLeft, BookOpenCheck, Check, ChevronRight, Gift, Home,
+  LockKeyhole, RotateCcw, Star, Trophy, Volume2, X
+} from 'lucide-react';
+import { QUESTIONS, WORD_BANK_META } from './data/questions.js';
+import './styles.css';
+
+const STORAGE_KEY = 'skyword-quest-v1';
+const INITIAL_STATE = { points: 0, unlockedLevel: 1, completed: {}, wrongIds: [], claimed: [] };
+
+function loadProgress() {
+  try { return { ...INITIAL_STATE, ...JSON.parse(localStorage.getItem(STORAGE_KEY)) }; }
+  catch { return INITIAL_STATE; }
+}
+
+function shuffle(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function playClick(tone = 'tap') {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const ctx = playClick.ctx || (playClick.ctx = new AudioContext());
+  const oscillator = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const now = ctx.currentTime;
+  oscillator.type = tone === 'success' ? 'sine' : tone === 'error' ? 'square' : 'triangle';
+  oscillator.frequency.setValueAtTime(tone === 'success' ? 660 : tone === 'error' ? 180 : 360, now);
+  if (tone === 'success') oscillator.frequency.exponentialRampToValueAtTime(990, now + 0.1);
+  gain.gain.setValueAtTime(0.055, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+  oscillator.connect(gain).connect(ctx.destination);
+  oscillator.start(now);
+  oscillator.stop(now + 0.13);
+}
+
+function speak(word) {
+  playClick();
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const speech = new SpeechSynthesisUtterance(word.replace(/=.*/, '').trim());
+  speech.lang = 'en-US';
+  speech.rate = 0.82;
+  const voices = window.speechSynthesis.getVoices();
+  speech.voice = voices.find((voice) => voice.lang === 'en-US') || voices.find((voice) => voice.lang.startsWith('en')) || null;
+  window.speechSynthesis.speak(speech);
+}
+
+function rewardFor(wrong) {
+  if (wrong === 0) return 50;
+  if (wrong <= 2) return 30;
+  if (wrong <= 5) return 10;
+  return 0;
+}
+
+function App() {
+  const [view, setView] = useState('home');
+  const [progress, setProgress] = useState(loadProgress);
+  const [activeLevel, setActiveLevel] = useState(null);
+  const [session, setSession] = useState(null);
+  const [rewardModal, setRewardModal] = useState(null);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+  }, [progress]);
+
+  const wrongQuestions = useMemo(
+    () => progress.wrongIds.map((id) => QUESTIONS.find((q) => q.id === id)).filter(Boolean),
+    [progress.wrongIds]
+  );
+
+  function go(next) { playClick(); setView(next); }
+
+  function startLevel(level) {
+    if (level > progress.unlockedLevel) { playClick('error'); return; }
+    const questions = shuffle(QUESTIONS.slice((level - 1) * 20, level * 20));
+    setActiveLevel(level);
+    setSession({ questions, index: 0, answers: [], selected: null, options: makeOptions(questions[0]) });
+    setView('quiz');
+    playClick('success');
+  }
+
+  function makeOptions(question) {
+    const distractors = shuffle(QUESTIONS.filter((q) => q.id !== question.id && q.meaning !== question.meaning))
+      .slice(0, 3).map((q) => q.meaning);
+    return shuffle([question.meaning, ...distractors]);
+  }
+
+  function answer(option) {
+    if (session.selected !== null) return;
+    const current = session.questions[session.index];
+    const correct = option === current.meaning;
+    playClick(correct ? 'success' : 'error');
+    setSession({ ...session, selected: option, answers: [...session.answers, { id: current.id, correct }] });
+  }
+
+  function nextQuestion() {
+    playClick();
+    if (session.index < session.questions.length - 1) {
+      const index = session.index + 1;
+      setSession({ ...session, index, selected: null, options: makeOptions(session.questions[index]) });
+      return;
+    }
+    if (view === 'review') {
+      const correctIds = session.answers.filter((item) => item.correct).map((item) => item.id);
+      setProgress({ ...progress, wrongIds: progress.wrongIds.filter((id) => !correctIds.includes(id)) });
+      const wrong = session.answers.filter((item) => !item.correct).length;
+      setSession({ ...session, result: { score: session.answers.length - wrong, wrong, reward: 0 } });
+    } else {
+      finishLevel(session.answers);
+    }
+  }
+
+  function finishLevel(answers) {
+    const wrongAnswers = answers.filter((item) => !item.correct);
+    const score = answers.length - wrongAnswers.length;
+    const reward = rewardFor(wrongAnswers.length);
+    const nextPoints = progress.points + reward;
+    const newWrong = new Set(progress.wrongIds);
+    answers.filter((item) => item.correct).forEach((item) => newWrong.delete(item.id));
+    wrongAnswers.forEach((item) => newWrong.add(item.id));
+    const newlyClaimed = [];
+    [500, 2000].forEach((threshold) => {
+      if (nextPoints >= threshold && !progress.claimed.includes(threshold)) newlyClaimed.push(threshold);
+    });
+    setProgress({
+      ...progress,
+      points: nextPoints,
+      unlockedLevel: Math.max(progress.unlockedLevel, Math.min(WORD_BANK_META.levelCount, activeLevel + 1)),
+      completed: { ...progress.completed, [activeLevel]: Math.max(progress.completed[activeLevel] || 0, score) },
+      wrongIds: [...newWrong],
+      claimed: [...progress.claimed, ...newlyClaimed]
+    });
+    setSession({ ...session, result: { score, wrong: wrongAnswers.length, reward } });
+    if (newlyClaimed.length) setRewardModal(newlyClaimed.at(-1));
+  }
+
+  return (
+    <main className="app-shell">
+      <SkyScene />
+      <TopBar points={progress.points} view={view} onHome={() => go('home')} />
+      <section className="content">
+        {view === 'home' && <HomeView progress={progress} onNavigate={go} />}
+        {view === 'levels' && <Levels progress={progress} onStart={startLevel} />}
+        {view === 'wrong' && <WrongBook questions={wrongQuestions} onReview={() => wrongQuestions.length && startReview(wrongQuestions, setSession, setView)} />}
+        {view === 'rewards' && <Rewards points={progress.points} claimed={progress.claimed} />}
+        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={nextQuestion} onSpeak={speak} onExit={() => go('levels')} />}
+        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={nextQuestion} onSpeak={speak} onExit={() => go('wrong')} review />}
+      </section>
+      {rewardModal && <RewardModal threshold={rewardModal} onClose={() => { playClick('success'); setRewardModal(null); }} />}
+    </main>
+  );
+}
+
+function startReview(questions, setSession, setView) {
+  playClick('success');
+  const shuffled = shuffle(questions);
+  setSession({ questions: shuffled, index: 0, answers: [], selected: null, options: makeReviewOptions(shuffled[0], questions) });
+  setView('review');
+}
+
+function makeReviewOptions(question, pool) {
+  return shuffle([question.meaning, ...shuffle(QUESTIONS.filter((q) => q.id !== question.id)).slice(0, 3).map((q) => q.meaning)]);
+}
+
+function SkyScene() {
+  return <div className="sky" aria-hidden="true"><div className="cloud c1"/><div className="cloud c2"/><div className="island"><div className="path"/><div className="portal">A</div></div></div>;
+}
+
+function TopBar({ points, view, onHome }) {
+  return <header className="topbar">
+    <button className="icon-btn" onClick={onHome} aria-label="返回首页"><Home size={22}/></button>
+    <div className="brand"><span className="brand-cube">A</span><span>天空单词闯关</span></div>
+    <div className="points"><Star size={19} fill="currentColor"/><strong>{points}</strong></div>
+  </header>;
+}
+
+function HomeView({ progress, onNavigate }) {
+  const completed = Object.keys(progress.completed).length;
+  return <div className="home-view">
+    <div className="hero-copy">
+      <p>WORD ADVENTURE</p><h1>踏上天空之路<br/>征服每一个单词</h1>
+      <div className="progress-line"><span style={{ width: `${(completed / WORD_BANK_META.levelCount) * 100}%` }}/></div>
+      <small>已完成 {completed} / {WORD_BANK_META.levelCount} 关</small>
+    </div>
+    <nav className="portal-grid">
+      <button className="portal-card challenge" onClick={() => onNavigate('levels')}><Trophy/><span><strong>闯关挑战</strong><small>{WORD_BANK_META.levelCount} 个天空关卡</small></span><ChevronRight/></button>
+      <button className="portal-card" onClick={() => onNavigate('wrong')}><BookOpenCheck/><span><strong>错题集</strong><small>{progress.wrongIds.length} 个待掌握单词</small></span><ChevronRight/></button>
+      <button className="portal-card" onClick={() => onNavigate('rewards')}><Gift/><span><strong>奖励机制</strong><small>累计积分解锁奖励</small></span><ChevronRight/></button>
+    </nav>
+  </div>;
+}
+
+function Levels({ progress, onStart }) {
+  return <div className="panel levels-panel"><header><p>CHOOSE YOUR PATH</p><h2>选择关卡</h2><span>每关 20 题，完成当前关卡后解锁下一关</span></header>
+    <div className="level-grid">{Array.from({ length: WORD_BANK_META.levelCount }, (_, index) => {
+      const level = index + 1; const locked = level > progress.unlockedLevel; const score = progress.completed[level];
+      return <button key={level} className={`level-tile ${locked ? 'locked' : ''} ${score !== undefined ? 'done' : ''}`} onClick={() => onStart(level)}>
+        {locked ? <LockKeyhole/> : score !== undefined ? <Check/> : <span className="level-number">{level}</span>}
+        <strong>第 {level} 关</strong><small>{score !== undefined ? `${score} / 20` : locked ? '尚未解锁' : '开始挑战'}</small>
+      </button>;
+    })}</div>
+  </div>;
+}
+
+function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, review }) {
+  if (session.result) return <Result result={session.result} onExit={onExit} review={review}/>;
+  const current = session.questions[session.index];
+  return <div className="quiz-panel panel">
+    <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><small>{session.index + 1} / {session.questions.length}</small></div></div>
+    <div className="quiz-progress"><span style={{ width: `${((session.index + 1) / session.questions.length) * 100}%` }}/></div>
+    <p className="prompt">选择正确的中文释义</p>
+    <button className="word-button" onClick={() => onSpeak(current.word)}><span>{current.word}</span><Volume2/></button>
+    <div className="options">{session.options.map((option, index) => {
+      const chosen = session.selected === option; const correct = option === current.meaning; const revealed = session.selected !== null;
+      return <button key={option} className={`${chosen ? 'chosen' : ''} ${revealed && correct ? 'correct' : ''} ${chosen && !correct ? 'incorrect' : ''}`} onClick={() => onAnswer(option)}><span>{String.fromCharCode(65 + index)}</span>{option}{revealed && correct && <Check/>}{chosen && !correct && <X/>}</button>;
+    })}</div>
+    {session.selected !== null && <button className="primary-btn" onClick={onNext}>{session.index === session.questions.length - 1 ? '查看结果' : '下一题'}<ChevronRight/></button>}
+  </div>;
+}
+
+function Result({ result, onExit, review }) {
+  return <div className="panel result"><div className="trophy"><Trophy/></div><p>{review ? 'REVIEW COMPLETE' : 'LEVEL COMPLETE'}</p><h2>{result.score} / {result.score + result.wrong}</h2><span>答对 {result.score} 题 · 答错 {result.wrong} 题</span>{!review && <div className="reward-earned"><Star fill="currentColor"/>本关获得 {result.reward} 积分</div>}<button className="primary-btn" onClick={onExit}>返回关卡<ChevronRight/></button></div>;
+}
+
+function WrongBook({ questions, onReview }) {
+  return <div className="panel wrong-panel"><header><p>MISTAKE NOTEBOOK</p><h2>错题集</h2><span>点按单词即可听标准英语发音</span></header>{questions.length === 0 ? <div className="empty"><BookOpenCheck/><h3>这里还是空的</h3><p>答错的单词会自动收录，答对后自动移除。</p></div> : <><div className="word-list">{questions.map((q) => <button key={q.id} onClick={() => speak(q.word)}><span><strong>{q.word}</strong><small>{q.meaning}</small></span><Volume2/></button>)}</div><button className="primary-btn sticky" onClick={onReview}><RotateCcw/>复习全部错题</button></>}</div>;
+}
+
+function Rewards({ points, claimed }) {
+  const rewards = [{ value: 500, title: '玩电脑一次' }, { value: 2000, title: '去游乐场游玩一次' }];
+  return <div className="panel rewards-panel"><header><p>YOUR TREASURE</p><h2>奖励机制</h2><span>认真闯关，积攒属于你的星星</span></header><div className="big-score"><Star fill="currentColor"/><strong>{points}</strong><span>累计积分</span></div><div className="rules"><span>全对 <b>+50</b></span><span>错 1–2 题 <b>+30</b></span><span>错 3–5 题 <b>+10</b></span><span>错 5 题以上 <b>+0</b></span></div>{rewards.map((reward) => <div className={`reward-row ${claimed.includes(reward.value) ? 'claimed' : ''}`} key={reward.value}><Gift/><span><strong>{reward.title}</strong><small>{claimed.includes(reward.value) ? '奖励已解锁' : `还差 ${Math.max(0, reward.value - points)} 积分`}</small></span><b>{reward.value}</b></div>)}</div>;
+}
+
+function RewardModal({ threshold, onClose }) {
+  return <div className="modal-backdrop"><div className="reward-modal"><Gift/><p>REWARD UNLOCKED</p><h2>太棒了！</h2><span>{threshold === 500 ? '你获得了玩电脑一次的奖励' : '你获得了去游乐场游玩一次的奖励'}</span><button className="primary-btn" onClick={onClose}>收下奖励<Star fill="currentColor"/></button></div></div>;
+}
+
+createRoot(document.getElementById('root')).render(<App />);
