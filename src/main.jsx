@@ -103,7 +103,7 @@ function pronounce(word, times = 1) {
   for (let index = 0; index < times; index += 1) {
     const speech = new SpeechSynthesisUtterance(word.replace(/=.*/, '').trim());
     speech.lang = 'en-US';
-    speech.rate = 0.78;
+    speech.rate = 0.546;
     speech.pitch = 1;
     speech.voice = voice;
     window.speechSynthesis.speak(speech);
