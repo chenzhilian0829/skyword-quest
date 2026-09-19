@@ -8,9 +8,12 @@ import { QUESTIONS, WORD_BANK_META } from './data/questions.js';
 import './styles.css';
 import './enhancements.css';
 import './scene-backgrounds.css';
+import './quiz-characters.css';
 
 const STORAGE_KEY = 'skyword-quest-v1';
 const INITIAL_STATE = { points: 0, unlockedLevel: 1, completed: {}, wrongIds: [], claimed: [] };
+const MAX_HEALTH = 5;
+const QUIZ_CHARACTERS = ['steve', 'zombie', 'skeleton', 'creeper', 'enderman', 'pig', 'cow', 'villager'];
 
 function loadProgress() {
   try { return { ...INITIAL_STATE, ...JSON.parse(localStorage.getItem(STORAGE_KEY)) }; }
@@ -153,7 +156,7 @@ function App() {
     if (level > progress.unlockedLevel) { playClick('error'); return; }
     const questions = shuffle(QUESTIONS.slice((level - 1) * 20, level * 20));
     setActiveLevel(level);
-    setSession({ questions, index: 0, answers: [], selected: null, options: makeOptions(questions[0]) });
+    setSession({ questions, index: 0, answers: [], selected: null, health: MAX_HEALTH, options: makeOptions(questions[0]), characters: makeCharacters() });
     setView('quiz');
     schedulePronunciation(questions[0].word);
     playClick('success');
@@ -165,16 +168,26 @@ function App() {
     return shuffle([question.meaning, ...distractors]);
   }
 
+  function makeCharacters() {
+    return shuffle(QUIZ_CHARACTERS).slice(0, 4);
+  }
+
   function answer(option) {
     if (session.selected !== null) return;
     const current = session.questions[session.index];
     const correct = option === current.meaning;
     const answers = [...session.answers, { id: current.id, correct }];
+    const health = correct || view === 'review' ? session.health : Math.max(0, session.health - 1);
     correct ? playCorrectSound() : playErrorSound();
-    setSession({ ...session, selected: option, answers });
+    setSession({ ...session, selected: option, answers, health });
     if (correct) {
       clearTimeout(autoAdvanceTimer.current);
       autoAdvanceTimer.current = setTimeout(() => advanceQuestion(answers, true), 800);
+    } else if (health === 0 && view !== 'review') {
+      clearTimeout(autoAdvanceTimer.current);
+      autoAdvanceTimer.current = setTimeout(() => {
+        setSession((currentSession) => ({ ...currentSession, result: { failed: true, score: answers.filter((item) => item.correct).length, wrong: answers.filter((item) => !item.correct).length, reward: 0 } }));
+      }, 900);
     }
   }
 
@@ -182,7 +195,7 @@ function App() {
     if (!silent) playClick();
     if (session.index < session.questions.length - 1) {
       const index = session.index + 1;
-      setSession((currentSession) => ({ ...currentSession, answers, index, selected: null, options: makeOptions(currentSession.questions[index]) }));
+      setSession((currentSession) => ({ ...currentSession, answers, index, selected: null, options: makeOptions(currentSession.questions[index]), characters: makeCharacters() }));
       schedulePronunciation(session.questions[index].word);
       return;
     }
@@ -229,7 +242,7 @@ function App() {
         {view === 'levels' && <Levels progress={progress} onStart={startLevel} />}
         {view === 'wrong' && <WrongBook questions={wrongQuestions} onReview={() => wrongQuestions.length && startReview(wrongQuestions, setSession, setView)} />}
         {view === 'rewards' && <Rewards points={progress.points} claimed={progress.claimed} />}
-        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onExit={() => go('levels')} />}
+        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onExit={() => go('levels')} onRestart={() => startLevel(activeLevel)} />}
         {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onExit={() => go('wrong')} review />}
       </section>
       {rewardModal && <RewardModal threshold={rewardModal} onClose={() => { playClick('success'); setRewardModal(null); }} />}
@@ -240,7 +253,7 @@ function App() {
 function startReview(questions, setSession, setView) {
   playClick('success');
   const shuffled = shuffle(questions);
-  setSession({ questions: shuffled, index: 0, answers: [], selected: null, options: makeReviewOptions(shuffled[0], questions) });
+  setSession({ questions: shuffled, index: 0, answers: [], selected: null, health: MAX_HEALTH, options: makeReviewOptions(shuffled[0], questions), characters: shuffle(QUIZ_CHARACTERS).slice(0, 4) });
   setView('review');
 }
 
@@ -288,25 +301,30 @@ function Levels({ progress, onStart }) {
   </div>;
 }
 
-function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, review }) {
-  if (session.result) return <Result result={session.result} onExit={onExit} review={review}/>;
+function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, onRestart, review }) {
+  if (session.result) return <Result result={session.result} onExit={onExit} onRestart={onRestart} review={review}/>;
   const current = session.questions[session.index];
   const sceneClass = typeof level === 'number' ? `scene-${((level - 1) % 16) + 1}` : 'scene-review';
   return <div className={`quiz-panel panel ${sceneClass}`}>
-    <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><small>{session.index + 1} / {session.questions.length}</small></div></div>
+    <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><span className="quiz-hearts" aria-label={`剩余 ${session.health} 点血量`}>{Array.from({ length: MAX_HEALTH }, (_, index) => <i key={index} className={index >= session.health ? 'lost' : ''}/>)}</span><small>{session.index + 1} / {session.questions.length}</small></div></div>
     <div className="quiz-progress"><span style={{ width: `${((session.index + 1) / session.questions.length) * 100}%` }}/></div>
     <p className="prompt">选择正确的中文释义</p>
     <button className="word-button" onClick={() => onSpeak(current.word)}><span>{current.word}</span><Volume2/></button>
     <div className="options">{session.options.map((option, index) => {
       const chosen = session.selected === option; const correct = option === current.meaning; const revealed = session.selected !== null;
-      return <button key={option} className={`${chosen ? 'chosen' : ''} ${revealed && correct ? 'correct' : ''} ${chosen && !correct ? 'incorrect' : ''}`} onClick={() => onAnswer(option)}><span>{String.fromCharCode(65 + index)}</span>{option}{revealed && correct && <Check/>}{chosen && !correct && <X/>}</button>;
+      return <button key={option} className={`character-option ${chosen ? 'chosen' : ''} ${revealed && correct ? 'correct' : ''} ${chosen && !correct ? 'incorrect' : ''}`} onClick={() => onAnswer(option)}><span className="option-letter">{String.fromCharCode(65 + index)}</span><PixelCharacter type={session.characters?.[index] || 'steve'} defeated={revealed && correct}/><strong className="option-meaning">{option}</strong>{revealed && correct && <Check className="answer-mark"/>}{chosen && !correct && <X className="answer-mark"/>}</button>;
     })}</div>
     {session.selected !== null && session.selected !== current.meaning && <div className="answer-explanation"><strong>正确答案：{current.meaning}</strong><span>解析：“{current.word}”的中文意思是“{current.meaning}”。</span></div>}
     {session.selected !== null && session.selected !== current.meaning && <button className="primary-btn" onClick={onNext}>{session.index === session.questions.length - 1 ? '查看结果' : '下一题'}<ChevronRight/></button>}
   </div>;
 }
 
-function Result({ result, onExit, review }) {
+function PixelCharacter({ type, defeated }) {
+  return <span className={`quiz-character ${type} ${defeated ? 'defeated' : ''}`} aria-hidden="true"><i className="pixel-head"/><i className="pixel-body"/><i className="pixel-arm left"/><i className="pixel-arm right"/><i className="pixel-leg left"/><i className="pixel-leg right"/></span>;
+}
+
+function Result({ result, onExit, onRestart, review }) {
+  if (result.failed) return <div className="panel result failure-result"><div className="trophy"><X/></div><p>GAME OVER</p><h2>本关失败</h2><span>5 颗爱心已经用完，重新挑战会恢复全部血量。</span><button className="primary-btn" onClick={onRestart}><RotateCcw/>重新挑战</button><button className="text-btn" onClick={onExit}>返回关卡</button></div>;
   return <div className="panel result"><div className="trophy"><Trophy/></div><p>{review ? 'REVIEW COMPLETE' : 'LEVEL COMPLETE'}</p><h2>{result.score} / {result.score + result.wrong}</h2><span>答对 {result.score} 题 · 答错 {result.wrong} 题</span>{!review && <div className="reward-earned"><Star fill="currentColor"/>本关获得 {result.reward} 积分</div>}<button className="primary-btn" onClick={onExit}>返回关卡<ChevronRight/></button></div>;
 }
 
