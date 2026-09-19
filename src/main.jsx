@@ -4,7 +4,7 @@ import {
   ArrowLeft, BookOpenCheck, Check, ChevronRight, Gift, Home,
   LockKeyhole, RotateCcw, Star, Trophy, Volume2, X
 } from 'lucide-react';
-import { QUESTIONS, WORD_BANK_META } from './data/questions.js';
+import { QUESTIONS } from './data/questions.js';
 import './styles.css';
 import './enhancements.css';
 import './scene-backgrounds.css';
@@ -13,6 +13,7 @@ import './quiz-characters.css';
 const STORAGE_KEY = 'skyword-quest-v1';
 const INITIAL_STATE = { points: 0, unlockedLevel: 1, completed: {}, wrongIds: [], claimed: [] };
 const MAX_HEALTH = 5;
+const LEVEL_COUNT = 60;
 const QUIZ_CHARACTERS = ['steve', 'zombie', 'skeleton', 'creeper', 'enderman', 'pig', 'cow', 'villager'];
 
 function loadProgress() {
@@ -154,7 +155,7 @@ function App() {
 
   function startLevel(level) {
     if (level > progress.unlockedLevel) { playClick('error'); return; }
-    const questions = shuffle(QUESTIONS.slice((level - 1) * 20, level * 20));
+    const questions = shuffle(QUESTIONS).slice(0, 20);
     setActiveLevel(level);
     setSession({ questions, index: 0, answers: [], selected: null, health: MAX_HEALTH, options: makeOptions(questions[0]), characters: makeCharacters() });
     setView('quiz');
@@ -224,7 +225,7 @@ function App() {
     setProgress({
       ...progress,
       points: nextPoints,
-      unlockedLevel: Math.max(progress.unlockedLevel, Math.min(WORD_BANK_META.levelCount, activeLevel + 1)),
+      unlockedLevel: Math.max(progress.unlockedLevel, Math.min(LEVEL_COUNT, activeLevel + 1)),
       completed: { ...progress.completed, [activeLevel]: Math.max(progress.completed[activeLevel] || 0, score) },
       wrongIds: [...newWrong],
       claimed: [...progress.claimed, ...newlyClaimed]
@@ -278,11 +279,11 @@ function HomeView({ progress, onNavigate }) {
   return <div className="home-view">
     <div className="hero-copy">
       <p>WORD ADVENTURE</p><h1>踏上天空之路<br/>征服每一个单词</h1>
-      <div className="progress-line"><span style={{ width: `${(completed / WORD_BANK_META.levelCount) * 100}%` }}/></div>
-      <small>已完成 {completed} / {WORD_BANK_META.levelCount} 关</small>
+      <div className="progress-line"><span style={{ width: `${(completed / LEVEL_COUNT) * 100}%` }}/></div>
+      <small>已完成 {completed} / {LEVEL_COUNT} 关</small>
     </div>
     <nav className="portal-grid">
-      <button className="portal-card challenge" onClick={() => onNavigate('levels')}><Trophy/><span><strong>闯关挑战</strong><small>{WORD_BANK_META.levelCount} 个天空关卡</small></span><ChevronRight/></button>
+      <button className="portal-card challenge" onClick={() => onNavigate('levels')}><Trophy/><span><strong>闯关挑战</strong><small>{LEVEL_COUNT} 个天空关卡</small></span><ChevronRight/></button>
       <button className="portal-card" onClick={() => onNavigate('wrong')}><BookOpenCheck/><span><strong>错题集</strong><small>{progress.wrongIds.length} 个待掌握单词</small></span><ChevronRight/></button>
       <button className="portal-card" onClick={() => onNavigate('rewards')}><Gift/><span><strong>奖励机制</strong><small>累计积分解锁奖励</small></span><ChevronRight/></button>
     </nav>
@@ -291,7 +292,7 @@ function HomeView({ progress, onNavigate }) {
 
 function Levels({ progress, onStart }) {
   return <div className="panel levels-panel"><header><p>CHOOSE YOUR PATH</p><h2>选择关卡</h2><span>每关 20 题，完成当前关卡后解锁下一关</span></header>
-    <div className="level-grid">{Array.from({ length: WORD_BANK_META.levelCount }, (_, index) => {
+    <div className="level-grid">{Array.from({ length: LEVEL_COUNT }, (_, index) => {
       const level = index + 1; const locked = level > progress.unlockedLevel; const score = progress.completed[level];
       return <button key={level} className={`level-tile ${locked ? 'locked' : ''} ${score !== undefined ? 'done' : ''}`} onClick={() => onStart(level)}>
         {locked ? <LockKeyhole/> : <span className={`pixel-avatar avatar-${(index % 8) + 1}`}><i/><b/></span>}
@@ -306,9 +307,8 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, onRestart, re
   const current = session.questions[session.index];
   const sceneClass = typeof level === 'number' ? `scene-${((level - 1) % 16) + 1}` : 'scene-review';
   return <div className={`quiz-panel panel ${sceneClass}`}>
-    <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><span className="quiz-hearts" aria-label={`剩余 ${session.health} 点血量`}>{Array.from({ length: MAX_HEALTH }, (_, index) => <i key={index} className={index >= session.health ? 'lost' : ''}/>)}</span><small>{session.index + 1} / {session.questions.length}</small></div></div>
+    <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><span className="quiz-hearts" aria-label={`剩余 ${session.health} 点血量`}>{Array.from({ length: MAX_HEALTH }, (_, index) => <i key={index} className={index >= session.health ? 'lost' : ''}/>)}</span></div></div>
     <div className="quiz-progress"><span style={{ width: `${((session.index + 1) / session.questions.length) * 100}%` }}/></div>
-    <p className="prompt">选择正确的中文释义</p>
     <button className="word-button" onClick={() => onSpeak(current.word)}><span>{current.word}</span><Volume2/></button>
     <div className="options">{session.options.map((option, index) => {
       const chosen = session.selected === option; const correct = option === current.meaning; const revealed = session.selected !== null;
@@ -316,6 +316,7 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, onRestart, re
     })}</div>
     {session.selected !== null && session.selected !== current.meaning && <div className="answer-explanation"><strong>正确答案：{current.meaning}</strong><span>解析：“{current.word}”的中文意思是“{current.meaning}”。</span></div>}
     {session.selected !== null && session.selected !== current.meaning && <button className="primary-btn" onClick={onNext}>{session.index === session.questions.length - 1 ? '查看结果' : '下一题'}<ChevronRight/></button>}
+    <div className="question-counter">第 {session.index + 1} 题 / 共 {session.questions.length} 题</div>
   </div>;
 }
 
