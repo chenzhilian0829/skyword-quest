@@ -210,7 +210,7 @@ function App() {
   function go(next) { playClick(); setView(next); }
 
   function applyReadingScore(stars) {
-    const pointsChange = stars === 0 ? -5 : stars === 1 ? -3 : stars === 3 ? 1 : 0;
+    const pointsChange = stars === 0 ? -3 : stars === 1 ? -1 : stars === 3 ? 1 : 0;
     setProgress((current) => ({ ...current, points: Math.max(0, current.points + pointsChange) }));
   }
 
@@ -448,7 +448,7 @@ function FollowRead({ word, confirmed, onStart, onScore, onConfirm }) {
         setStatus('idle');
         if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(errorRef.current)) return;
         const scored = scorePronunciation(word, transcriptRef.current);
-        const pointsChange = scored.stars === 0 ? -5 : scored.stars === 1 ? -3 : scored.stars === 3 ? 1 : 0;
+        const pointsChange = scored.stars === 0 ? -3 : scored.stars === 1 ? -1 : scored.stars === 3 ? 1 : 0;
         setResult({ ...scored, transcript: transcriptRef.current || '未识别到语音', pointsChange });
         onScore(scored.stars);
         scored.stars >= 2 ? playCorrectSound() : playErrorSound();
@@ -494,7 +494,7 @@ function WrongBook({ questions, onReview }) {
 
 function Rewards({ points, claimed }) {
   const rewards = [{ value: 500, title: '玩电脑一次' }, { value: 2000, title: '去游乐场游玩一次' }];
-  return <div className="panel rewards-panel"><header><p>YOUR TREASURE</p><h2>奖励机制</h2><span>认真闯关，积攒属于你的星星</span></header><div className="big-score"><Star fill="currentColor"/><strong>{points}</strong><span>累计积分</span></div><div className="rules"><span>全对 <b>+50</b></span><span>错 1–2 题 <b>+30</b></span><span>错 3–5 题 <b>+10</b></span><span>错 5 题以上 <b>+0</b></span><span>跟读 0 星 <b>-5</b></span><span>跟读 1 星 <b>-3</b></span><span>跟读 2 星 <b>不变</b></span><span>跟读 3 星 <b>+1</b></span></div>{rewards.map((reward) => <div className={`reward-row ${claimed.includes(reward.value) ? 'claimed' : ''}`} key={reward.value}><Gift/><span><strong>{reward.title}</strong><small>{claimed.includes(reward.value) ? '奖励已解锁' : `还差 ${Math.max(0, reward.value - points)} 积分`}</small></span><b>{reward.value}</b></div>)}</div>;
+  return <div className="panel rewards-panel"><header><p>YOUR TREASURE</p><h2>奖励机制</h2><span>认真闯关，积攒属于你的星星</span></header><div className="big-score"><Star fill="currentColor"/><strong>{points}</strong><span>累计积分</span></div><div className="rules"><span>全对 <b>+50</b></span><span>错 1–2 题 <b>+30</b></span><span>错 3–5 题 <b>+10</b></span><span>错 5 题以上 <b>+0</b></span><span>跟读 0 星 <b>-3</b></span><span>跟读 1 星 <b>-1</b></span><span>跟读 2 星 <b>不变</b></span><span>跟读 3 星 <b>+1</b></span></div>{rewards.map((reward) => <div className={`reward-row ${claimed.includes(reward.value) ? 'claimed' : ''}`} key={reward.value}><Gift/><span><strong>{reward.title}</strong><small>{claimed.includes(reward.value) ? '奖励已解锁' : `还差 ${Math.max(0, reward.value - points)} 积分`}</small></span><b>{reward.value}</b></div>)}</div>;
 }
 
 function RewardModal({ threshold, onClose }) {
