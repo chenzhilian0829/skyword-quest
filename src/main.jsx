@@ -218,7 +218,7 @@ function App() {
     if (level > progress.unlockedLevel) { playClick('error'); return; }
     const questions = shuffle(QUESTIONS).slice(0, 20);
     setActiveLevel(level);
-    setSession({ questions, index: 0, answers: [], selected: null, health: MAX_HEALTH, options: makeOptions(questions[0]), characters: makeCharacters() });
+    setSession({ questions, index: 0, answers: [], selected: null, readingConfirmed: false, health: MAX_HEALTH, options: makeOptions(questions[0]), characters: makeCharacters() });
     setView('quiz');
     schedulePronunciation(questions[0].word);
     playClick('success');
@@ -240,7 +240,7 @@ function App() {
     const health = correct || view === 'review' ? session.health : Math.max(0, session.health - 1);
     correct ? playCorrectSound() : playErrorSound();
     setSession({ ...session, selected: option, answers, health });
-    if (correct) {
+    if (correct && session.readingConfirmed) {
       clearTimeout(autoAdvanceTimer.current);
       autoAdvanceTimer.current = setTimeout(() => advanceQuestion(answers, true), 800);
     } else if (health === 0 && view !== 'review') {
@@ -251,11 +251,27 @@ function App() {
     }
   }
 
+  function resetReadingConfirmation() {
+    setSession((current) => current ? { ...current, readingConfirmed: false } : current);
+  }
+
+  function confirmReading() {
+    if (!session) return;
+    const currentQuestion = session.questions[session.index];
+    const shouldAdvance = session.selected === currentQuestion.meaning;
+    const answers = session.answers;
+    setSession((current) => ({ ...current, readingConfirmed: true }));
+    if (shouldAdvance) {
+      clearTimeout(autoAdvanceTimer.current);
+      autoAdvanceTimer.current = setTimeout(() => advanceQuestion(answers, true), 800);
+    }
+  }
+
   function advanceQuestion(answers = session.answers, silent = false) {
     if (!silent) playClick();
     if (session.index < session.questions.length - 1) {
       const index = session.index + 1;
-      setSession((currentSession) => ({ ...currentSession, answers, index, selected: null, options: makeOptions(currentSession.questions[index]), characters: makeCharacters() }));
+      setSession((currentSession) => ({ ...currentSession, answers, index, selected: null, readingConfirmed: false, options: makeOptions(currentSession.questions[index]), characters: makeCharacters() }));
       schedulePronunciation(session.questions[index].word);
       return;
     }
@@ -302,8 +318,8 @@ function App() {
         {view === 'levels' && <Levels progress={progress} onStart={startLevel} />}
         {view === 'wrong' && <WrongBook questions={wrongQuestions} onReview={() => wrongQuestions.length && startReview(wrongQuestions, setSession, setView)} />}
         {view === 'rewards' && <Rewards points={progress.points} claimed={progress.claimed} />}
-        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingScore={applyReadingScore} onExit={() => go('levels')} onRestart={() => startLevel(activeLevel)} />}
-        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingScore={applyReadingScore} onExit={() => go('wrong')} review />}
+        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingScore={applyReadingScore} onReadingStart={resetReadingConfirmation} onReadingConfirm={confirmReading} onExit={() => go('levels')} onRestart={() => startLevel(activeLevel)} />}
+        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingScore={applyReadingScore} onReadingStart={resetReadingConfirmation} onReadingConfirm={confirmReading} onExit={() => go('wrong')} review />}
       </section>
       {rewardModal && <RewardModal threshold={rewardModal} onClose={() => { playClick('success'); setRewardModal(null); }} />}
     </main>
@@ -313,7 +329,7 @@ function App() {
 function startReview(questions, setSession, setView) {
   playClick('success');
   const shuffled = shuffle(questions);
-  setSession({ questions: shuffled, index: 0, answers: [], selected: null, health: MAX_HEALTH, options: makeReviewOptions(shuffled[0], questions), characters: shuffle(QUIZ_CHARACTERS).slice(0, 4) });
+  setSession({ questions: shuffled, index: 0, answers: [], selected: null, readingConfirmed: false, health: MAX_HEALTH, options: makeReviewOptions(shuffled[0], questions), characters: shuffle(QUIZ_CHARACTERS).slice(0, 4) });
   setView('review');
 }
 
@@ -361,7 +377,7 @@ function Levels({ progress, onStart }) {
   </div>;
 }
 
-function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingScore, onExit, onRestart, review }) {
+function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingScore, onReadingStart, onReadingConfirm, onExit, onRestart, review }) {
   if (session.result) return <Result result={session.result} onExit={onExit} onRestart={onRestart} review={review}/>;
   const current = session.questions[session.index];
   const sceneClass = typeof level === 'number' ? `scene-${((level - 1) % 16) + 1}` : 'scene-review';
@@ -370,7 +386,7 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingScore, onExi
     <div className="quiz-progress"><span style={{ width: `${((session.index + 1) / session.questions.length) * 100}%` }}/></div>
     <div className="word-tools">
       <button className="word-button" onClick={() => onSpeak(current.word)}><span>{current.word}</span><Volume2/></button>
-      <FollowRead key={current.id} word={current.word} onScore={onReadingScore}/>
+      <FollowRead key={current.id} word={current.word} confirmed={session.readingConfirmed} onStart={onReadingStart} onScore={onReadingScore} onConfirm={onReadingConfirm}/>
     </div>
     <div className="options">{session.options.map((option, index) => {
       const chosen = session.selected === option; const correct = option === current.meaning; const revealed = session.selected !== null;
@@ -378,11 +394,12 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingScore, onExi
     })}</div>
     {session.selected !== null && session.selected !== current.meaning && <div className="answer-explanation"><strong>正确答案：{current.meaning}</strong><span>解析：“{current.word}”的中文意思是“{current.meaning}”。</span></div>}
     {session.selected !== null && session.selected !== current.meaning && <button className="primary-btn" onClick={onNext}>{session.index === session.questions.length - 1 ? '查看结果' : '下一题'}<ChevronRight/></button>}
+    {session.selected === current.meaning && !session.readingConfirmed && <div className="reading-gate-tip"><Mic/>答案正确，请完成跟读并确认成绩</div>}
     <div className="question-counter">第 {session.index + 1} 题 / 共 {session.questions.length} 题</div>
   </div>;
 }
 
-function FollowRead({ word, onScore }) {
+function FollowRead({ word, confirmed, onStart, onScore, onConfirm }) {
   const recognitionRef = useRef(null);
   const transcriptRef = useRef('');
   const errorRef = useRef(null);
@@ -404,6 +421,7 @@ function FollowRead({ word, onScore }) {
       return;
     }
     try {
+      onStart();
       window.speechSynthesis?.cancel();
       const recognition = new Recognition();
       recognition.lang = 'en-US';
@@ -457,6 +475,7 @@ function FollowRead({ word, onScore }) {
       <strong>{result.stars} 星</strong>
       <small>识别：{result.transcript}</small>
       <b>{result.deduction ? `-${result.deduction} 积分` : '积分不变'}</b>
+      <button className={`confirm-reading ${confirmed ? 'confirmed' : ''}`} onClick={() => { playClick('success'); onConfirm(); }} disabled={confirmed}>{confirmed ? '已确认' : '确认跟读'}</button>
     </div>}
   </div>;
 }

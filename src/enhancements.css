@@ -136,7 +136,7 @@
   border-radius: 7px;
   background: rgba(255, 255, 255, .9);
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto auto;
   align-items: center;
   gap: 8px;
   color: #315064;
@@ -175,6 +175,46 @@
   color: #c23d35;
 }
 
+.confirm-reading {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 5px;
+  background: #f2bf26;
+  color: #4f3b00;
+  font-weight: 900;
+  box-shadow: 0 3px 0 #b98111;
+}
+
+.confirm-reading.confirmed {
+  background: #dce8dd;
+  color: #4d7252;
+  box-shadow: none;
+}
+
+.reading-gate-tip {
+  margin: 14px auto 0;
+  width: max-content;
+  max-width: 100%;
+  padding: 10px 14px;
+  border: 2px solid #efc534;
+  border-radius: 6px;
+  background: #fff8c9;
+  color: #765a00;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  font-weight: 900;
+}
+
+.reading-gate-tip svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
+}
+
 @keyframes recording-pulse {
   50% { transform: scale(.97); }
 }
@@ -185,7 +225,7 @@
   }
 
   .reading-result {
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto 1fr auto auto;
   }
 
   .reading-result small {
