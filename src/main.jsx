@@ -14,7 +14,7 @@ const STORAGE_KEY = 'skyword-quest-v1';
 const INITIAL_STATE = { points: 0, unlockedLevel: 1, completed: {}, wrongIds: [], claimed: [] };
 const MAX_HEALTH = 5;
 const LEVEL_COUNT = 60;
-const QUIZ_CHARACTERS = ['steve', 'zombie', 'skeleton', 'creeper', 'enderman', 'pig', 'cow', 'villager'];
+const QUIZ_CHARACTERS = Array.from({ length: 15 }, (_, index) => `./assets/characters/character-${String(index + 1).padStart(2, '0')}.webp`);
 
 function loadProgress() {
   try { return { ...INITIAL_STATE, ...JSON.parse(localStorage.getItem(STORAGE_KEY)) }; }
@@ -28,6 +28,29 @@ function shuffle(items) {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
+}
+
+function makeQuizOptions(question) {
+  const isPhrase = /[\s,.!?']/u.test(question.word);
+  const meaningLength = question.meaning.replace(/[，。！？…\s]/gu, '').length;
+  const candidates = QUESTIONS
+    .filter((item) => item.id !== question.id && item.meaning !== question.meaning)
+    .map((item) => {
+      const candidateIsPhrase = /[\s,.!?']/u.test(item.word);
+      const candidateLength = item.meaning.replace(/[，。！？…\s]/gu, '').length;
+      const nearbyScore = Math.min(Math.abs(item.id - question.id), 40) * 0.7;
+      const formatScore = candidateIsPhrase === isPhrase ? 0 : 28;
+      const lengthScore = Math.abs(candidateLength - meaningLength) * 2.4;
+      return { item, score: nearbyScore + formatScore + lengthScore + Math.random() * 8 };
+    })
+    .sort((a, b) => a.score - b.score);
+
+  const distractors = [];
+  for (const { item } of candidates) {
+    if (!distractors.includes(item.meaning)) distractors.push(item.meaning);
+    if (distractors.length === 3) break;
+  }
+  return shuffle([question.meaning, ...distractors]);
 }
 
 function playClick(tone = 'tap') {
@@ -164,9 +187,7 @@ function App() {
   }
 
   function makeOptions(question) {
-    const distractors = shuffle(QUESTIONS.filter((q) => q.id !== question.id && q.meaning !== question.meaning))
-      .slice(0, 3).map((q) => q.meaning);
-    return shuffle([question.meaning, ...distractors]);
+    return makeQuizOptions(question);
   }
 
   function makeCharacters() {
@@ -258,8 +279,8 @@ function startReview(questions, setSession, setView) {
   setView('review');
 }
 
-function makeReviewOptions(question, pool) {
-  return shuffle([question.meaning, ...shuffle(QUESTIONS.filter((q) => q.id !== question.id)).slice(0, 3).map((q) => q.meaning)]);
+function makeReviewOptions(question) {
+  return makeQuizOptions(question);
 }
 
 function SkyScene() {
@@ -321,7 +342,7 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, onRestart, re
 }
 
 function PixelCharacter({ type, defeated }) {
-  return <span className={`quiz-character ${type} ${defeated ? 'defeated' : ''}`} aria-hidden="true"><i className="pixel-head"/><i className="pixel-body"/><i className="pixel-arm left"/><i className="pixel-arm right"/><i className="pixel-leg left"/><i className="pixel-leg right"/></span>;
+  return <span className={`quiz-character ${defeated ? 'defeated' : ''}`} aria-hidden="true"><img src={type} alt="" draggable="false"/></span>;
 }
 
 function Result({ result, onExit, onRestart, review }) {
