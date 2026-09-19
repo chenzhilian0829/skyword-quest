@@ -383,7 +383,6 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingScore, onRea
   const sceneClass = typeof level === 'number' ? `scene-${((level - 1) % 16) + 1}` : 'scene-review';
   return <div className={`quiz-panel panel ${sceneClass}`}>
     <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><span className="quiz-hearts" aria-label={`剩余 ${session.health} 点血量`}>{Array.from({ length: MAX_HEALTH }, (_, index) => <i key={index} className={index >= session.health ? 'lost' : ''}/>)}</span></div></div>
-    <div className="quiz-progress"><span style={{ width: `${((session.index + 1) / session.questions.length) * 100}%` }}/></div>
     <div className="word-tools">
       <button className="word-button" onClick={() => onSpeak(current.word)}><span>{current.word}</span><Volume2/></button>
       <FollowRead key={current.id} word={current.word} confirmed={session.readingConfirmed} onStart={onReadingStart} onScore={onReadingScore} onConfirm={onReadingConfirm}/>
