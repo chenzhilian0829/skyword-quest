@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowLeft, BookOpenCheck, Check, ChevronRight, Gift, Home,
-  LockKeyhole, RotateCcw, Star, Trophy, Volume2, X
+  LockKeyhole, Mic, RotateCcw, Star, Trophy, Volume2, X
 } from 'lucide-react';
 import { QUESTIONS } from './data/questions.js';
 import './styles.css';
@@ -144,6 +144,39 @@ function rewardFor(wrong) {
   return 0;
 }
 
+function normalizeSpeech(text) {
+  return text.toLowerCase().replace(/[^a-z0-9'\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function editDistance(left, right) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    let diagonal = previous[0];
+    previous[0] = row;
+    for (let column = 1; column <= right.length; column += 1) {
+      const above = previous[column];
+      previous[column] = left[row - 1] === right[column - 1]
+        ? diagonal
+        : Math.min(diagonal, above, previous[column - 1]) + 1;
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
+function scorePronunciation(expectedText, spokenText) {
+  const expected = normalizeSpeech(expectedText.replace(/=.*/, ''));
+  const spoken = normalizeSpeech(spokenText);
+  if (!expected || !spoken) return { stars: 0, similarity: 0 };
+  const characterSimilarity = 1 - editDistance(expected, spoken) / Math.max(expected.length, spoken.length);
+  const expectedWords = expected.split(' ');
+  const spokenWords = spoken.split(' ');
+  const wordSimilarity = 1 - editDistance(expectedWords, spokenWords) / Math.max(expectedWords.length, spokenWords.length);
+  const similarity = Math.max(0, characterSimilarity * 0.55 + wordSimilarity * 0.45);
+  const stars = similarity >= 0.84 ? 3 : similarity >= 0.62 ? 2 : similarity >= 0.36 ? 1 : 0;
+  return { stars, similarity };
+}
+
 function App() {
   const [view, setView] = useState('home');
   const [progress, setProgress] = useState(loadProgress);
@@ -175,6 +208,11 @@ function App() {
   );
 
   function go(next) { playClick(); setView(next); }
+
+  function applyReadingScore(stars) {
+    const deduction = stars === 0 ? 5 : stars === 1 ? 3 : 0;
+    setProgress((current) => ({ ...current, points: Math.max(0, current.points - deduction) }));
+  }
 
   function startLevel(level) {
     if (level > progress.unlockedLevel) { playClick('error'); return; }
@@ -264,8 +302,8 @@ function App() {
         {view === 'levels' && <Levels progress={progress} onStart={startLevel} />}
         {view === 'wrong' && <WrongBook questions={wrongQuestions} onReview={() => wrongQuestions.length && startReview(wrongQuestions, setSession, setView)} />}
         {view === 'rewards' && <Rewards points={progress.points} claimed={progress.claimed} />}
-        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onExit={() => go('levels')} onRestart={() => startLevel(activeLevel)} />}
-        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onExit={() => go('wrong')} review />}
+        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingScore={applyReadingScore} onExit={() => go('levels')} onRestart={() => startLevel(activeLevel)} />}
+        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingScore={applyReadingScore} onExit={() => go('wrong')} review />}
       </section>
       {rewardModal && <RewardModal threshold={rewardModal} onClose={() => { playClick('success'); setRewardModal(null); }} />}
     </main>
@@ -323,14 +361,17 @@ function Levels({ progress, onStart }) {
   </div>;
 }
 
-function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, onRestart, review }) {
+function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingScore, onExit, onRestart, review }) {
   if (session.result) return <Result result={session.result} onExit={onExit} onRestart={onRestart} review={review}/>;
   const current = session.questions[session.index];
   const sceneClass = typeof level === 'number' ? `scene-${((level - 1) % 16) + 1}` : 'scene-review';
   return <div className={`quiz-panel panel ${sceneClass}`}>
     <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><span className="quiz-hearts" aria-label={`剩余 ${session.health} 点血量`}>{Array.from({ length: MAX_HEALTH }, (_, index) => <i key={index} className={index >= session.health ? 'lost' : ''}/>)}</span></div></div>
     <div className="quiz-progress"><span style={{ width: `${((session.index + 1) / session.questions.length) * 100}%` }}/></div>
-    <button className="word-button" onClick={() => onSpeak(current.word)}><span>{current.word}</span><Volume2/></button>
+    <div className="word-tools">
+      <button className="word-button" onClick={() => onSpeak(current.word)}><span>{current.word}</span><Volume2/></button>
+      <FollowRead key={current.id} word={current.word} onScore={onReadingScore}/>
+    </div>
     <div className="options">{session.options.map((option, index) => {
       const chosen = session.selected === option; const correct = option === current.meaning; const revealed = session.selected !== null;
       return <button key={option} className={`character-option ${chosen ? 'chosen' : ''} ${revealed && correct ? 'correct' : ''} ${chosen && !correct ? 'incorrect' : ''}`} onClick={() => onAnswer(option)}><span className="option-letter">{String.fromCharCode(65 + index)}</span><PixelCharacter type={session.characters?.[index] || 'steve'} defeated={revealed && correct}/><strong className="option-meaning">{option}</strong>{revealed && correct && <Check className="answer-mark"/>}{chosen && !correct && <X className="answer-mark"/>}</button>;
@@ -338,6 +379,85 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onExit, onRestart, re
     {session.selected !== null && session.selected !== current.meaning && <div className="answer-explanation"><strong>正确答案：{current.meaning}</strong><span>解析：“{current.word}”的中文意思是“{current.meaning}”。</span></div>}
     {session.selected !== null && session.selected !== current.meaning && <button className="primary-btn" onClick={onNext}>{session.index === session.questions.length - 1 ? '查看结果' : '下一题'}<ChevronRight/></button>}
     <div className="question-counter">第 {session.index + 1} 题 / 共 {session.questions.length} 题</div>
+  </div>;
+}
+
+function FollowRead({ word, onScore }) {
+  const recognitionRef = useRef(null);
+  const transcriptRef = useRef('');
+  const errorRef = useRef(null);
+  const [status, setStatus] = useState('idle');
+  const [result, setResult] = useState(null);
+  const Recognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  useEffect(() => () => recognitionRef.current?.abort(), []);
+
+  async function startReading() {
+    playClick();
+    if (status === 'listening') {
+      recognitionRef.current?.stop();
+      setStatus('scoring');
+      return;
+    }
+    if (!Recognition) {
+      setResult({ error: '当前浏览器不支持语音评分，请使用 iPad Safari 或最新版 Chrome。' });
+      return;
+    }
+    try {
+      window.speechSynthesis?.cancel();
+      const recognition = new Recognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 3;
+      transcriptRef.current = '';
+      errorRef.current = null;
+      recognition.onstart = () => setStatus('listening');
+      recognition.onresult = (event) => {
+        let transcript = '';
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          transcript += `${event.results[index][0].transcript} `;
+        }
+        transcriptRef.current = transcript.trim();
+      };
+      recognition.onerror = (event) => {
+        errorRef.current = event.error;
+        if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(event.error)) {
+          setResult({ error: '无法使用麦克风，请在浏览器设置中允许此网页访问麦克风。' });
+        }
+      };
+      recognition.onend = () => {
+        recognitionRef.current = null;
+        setStatus('idle');
+        if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(errorRef.current)) return;
+        const scored = scorePronunciation(word, transcriptRef.current);
+        const deduction = scored.stars === 0 ? 5 : scored.stars === 1 ? 3 : 0;
+        setResult({ ...scored, transcript: transcriptRef.current || '未识别到语音', deduction });
+        onScore(scored.stars);
+        scored.stars >= 2 ? playCorrectSound() : playErrorSound();
+      };
+      recognitionRef.current = recognition;
+      setResult(null);
+      setStatus('starting');
+      recognition.start();
+    } catch (error) {
+      setStatus('idle');
+      setResult({ error: error?.name === 'NotAllowedError' ? '麦克风权限未开启，请允许后再试。' : '麦克风启动失败，请检查设备设置后重试。' });
+    }
+  }
+
+  return <div className="follow-read">
+    <button className={`follow-button ${status === 'listening' ? 'recording' : ''}`} onClick={startReading} disabled={status === 'starting' || status === 'scoring'}>
+      <Mic/>{status === 'listening' ? '结束评分' : status === 'starting' ? '正在启动…' : status === 'scoring' ? '正在评分…' : '跟读'}
+    </button>
+    {status === 'listening' && <span className="listening-tip"><i/>正在录音，读完后稍等或点击结束</span>}
+    {result?.error && <span className="reading-error">{result.error}</span>}
+    {result && !result.error && <div className={`reading-result stars-${result.stars}`}>
+      <span className="reading-stars" aria-label={`${result.stars} 星`}>{Array.from({ length: 3 }, (_, index) => <Star key={index} fill={index < result.stars ? 'currentColor' : 'none'}/>)}</span>
+      <strong>{result.stars} 星</strong>
+      <small>识别：{result.transcript}</small>
+      <b>{result.deduction ? `-${result.deduction} 积分` : '积分不变'}</b>
+    </div>}
   </div>;
 }
 
@@ -356,7 +476,7 @@ function WrongBook({ questions, onReview }) {
 
 function Rewards({ points, claimed }) {
   const rewards = [{ value: 500, title: '玩电脑一次' }, { value: 2000, title: '去游乐场游玩一次' }];
-  return <div className="panel rewards-panel"><header><p>YOUR TREASURE</p><h2>奖励机制</h2><span>认真闯关，积攒属于你的星星</span></header><div className="big-score"><Star fill="currentColor"/><strong>{points}</strong><span>累计积分</span></div><div className="rules"><span>全对 <b>+50</b></span><span>错 1–2 题 <b>+30</b></span><span>错 3–5 题 <b>+10</b></span><span>错 5 题以上 <b>+0</b></span></div>{rewards.map((reward) => <div className={`reward-row ${claimed.includes(reward.value) ? 'claimed' : ''}`} key={reward.value}><Gift/><span><strong>{reward.title}</strong><small>{claimed.includes(reward.value) ? '奖励已解锁' : `还差 ${Math.max(0, reward.value - points)} 积分`}</small></span><b>{reward.value}</b></div>)}</div>;
+  return <div className="panel rewards-panel"><header><p>YOUR TREASURE</p><h2>奖励机制</h2><span>认真闯关，积攒属于你的星星</span></header><div className="big-score"><Star fill="currentColor"/><strong>{points}</strong><span>累计积分</span></div><div className="rules"><span>全对 <b>+50</b></span><span>错 1–2 题 <b>+30</b></span><span>错 3–5 题 <b>+10</b></span><span>错 5 题以上 <b>+0</b></span><span>跟读 0 星 <b>-5</b></span><span>跟读 1 星 <b>-3</b></span><span>跟读 2–3 星 <b>不扣分</b></span></div>{rewards.map((reward) => <div className={`reward-row ${claimed.includes(reward.value) ? 'claimed' : ''}`} key={reward.value}><Gift/><span><strong>{reward.title}</strong><small>{claimed.includes(reward.value) ? '奖励已解锁' : `还差 ${Math.max(0, reward.value - points)} 积分`}</small></span><b>{reward.value}</b></div>)}</div>;
 }
 
 function RewardModal({ threshold, onClose }) {
