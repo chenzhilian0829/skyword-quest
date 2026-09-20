@@ -390,7 +390,6 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingStart, onRea
       const chosen = session.selected === option; const correct = option === current.meaning; const revealed = session.selected !== null;
       return <button key={option} className={`character-option ${chosen ? 'chosen' : ''} ${revealed && correct ? 'correct' : ''} ${chosen && !correct ? 'incorrect' : ''}`} onClick={() => onAnswer(option)}><span className="option-letter">{String.fromCharCode(65 + index)}</span><PixelCharacter type={session.characters?.[index] || 'steve'} defeated={revealed && correct}/><strong className="option-meaning">{option}</strong>{revealed && correct && <Check className="answer-mark"/>}{chosen && !correct && <X className="answer-mark"/>}</button>;
     })}</div>
-    {session.selected !== null && session.selected !== current.meaning && <div className="answer-explanation"><strong>正确答案：{current.meaning}</strong><span>解析：“{current.word}”的中文意思是“{current.meaning}”。</span></div>}
     {session.selected !== null && session.selected !== current.meaning && <button className="primary-btn" onClick={onNext}>{session.index === session.questions.length - 1 ? '查看结果' : '下一题'}<ChevronRight/></button>}
     {session.selected === current.meaning && !session.readingConfirmed && <div className="reading-gate-tip"><Mic/>答案正确，请完成跟读并确认成绩</div>}
     <div className="question-counter">第 {session.index + 1} 题 / 共 {session.questions.length} 题</div>
