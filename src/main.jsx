@@ -210,8 +210,7 @@ function App() {
   function go(next) { playClick(); setView(next); }
 
   function applyReadingScore(stars) {
-    const pointsChange = stars === 0 ? -3 : stars === 1 ? -1 : stars === 3 ? 1 : 0;
-    setProgress((current) => ({ ...current, points: Math.max(0, current.points + pointsChange) }));
+    setProgress((current) => ({ ...current, points: current.points + stars }));
   }
 
   function startLevel(level) {
@@ -255,8 +254,9 @@ function App() {
     setSession((current) => current ? { ...current, readingConfirmed: false } : current);
   }
 
-  function confirmReading() {
+  function confirmReading(stars) {
     if (!session) return;
+    applyReadingScore(stars);
     const currentQuestion = session.questions[session.index];
     const shouldAdvance = session.selected === currentQuestion.meaning;
     const answers = session.answers;
@@ -318,8 +318,8 @@ function App() {
         {view === 'levels' && <Levels progress={progress} onStart={startLevel} />}
         {view === 'wrong' && <WrongBook questions={wrongQuestions} onReview={() => wrongQuestions.length && startReview(wrongQuestions, setSession, setView)} />}
         {view === 'rewards' && <Rewards points={progress.points} claimed={progress.claimed} />}
-        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingScore={applyReadingScore} onReadingStart={resetReadingConfirmation} onReadingConfirm={confirmReading} onExit={() => go('levels')} onRestart={() => startLevel(activeLevel)} />}
-        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingScore={applyReadingScore} onReadingStart={resetReadingConfirmation} onReadingConfirm={confirmReading} onExit={() => go('wrong')} review />}
+        {view === 'quiz' && session && <Quiz session={session} level={activeLevel} onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingStart={resetReadingConfirmation} onReadingConfirm={confirmReading} onExit={() => go('levels')} onRestart={() => startLevel(activeLevel)} />}
+        {view === 'review' && session && <Quiz session={session} level="错题复习" onAnswer={answer} onNext={() => advanceQuestion()} onSpeak={speak} onReadingStart={resetReadingConfirmation} onReadingConfirm={confirmReading} onExit={() => go('wrong')} review />}
       </section>
       {rewardModal && <RewardModal threshold={rewardModal} onClose={() => { playClick('success'); setRewardModal(null); }} />}
     </main>
@@ -377,15 +377,14 @@ function Levels({ progress, onStart }) {
   </div>;
 }
 
-function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingScore, onReadingStart, onReadingConfirm, onExit, onRestart, review }) {
+function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingStart, onReadingConfirm, onExit, onRestart, review }) {
   if (session.result) return <Result result={session.result} onExit={onExit} onRestart={onRestart} review={review}/>;
   const current = session.questions[session.index];
   const sceneClass = typeof level === 'number' ? `scene-${((level - 1) % 16) + 1}` : 'scene-review';
   return <div className={`quiz-panel panel ${sceneClass}`}>
-    <div className="quiz-head"><button className="icon-btn dark" onClick={onExit}><ArrowLeft/></button><div><strong>{typeof level === 'number' ? `第 ${level} 关` : level}</strong><span className="quiz-hearts" aria-label={`剩余 ${session.health} 点血量`}>{Array.from({ length: MAX_HEALTH }, (_, index) => <i key={index} className={index >= session.health ? 'lost' : ''}/>)}</span></div></div>
     <div className="word-tools">
       <button className="word-button" onClick={() => onSpeak(current.word)}><span>{current.word}</span><Volume2/></button>
-      <FollowRead key={current.id} word={current.word} confirmed={session.readingConfirmed} onStart={onReadingStart} onScore={onReadingScore} onConfirm={onReadingConfirm}/>
+      <FollowRead key={current.id} word={current.word} confirmed={session.readingConfirmed} onStart={onReadingStart} onConfirm={onReadingConfirm}/>
     </div>
     <div className="options">{session.options.map((option, index) => {
       const chosen = session.selected === option; const correct = option === current.meaning; const revealed = session.selected !== null;
@@ -398,7 +397,7 @@ function Quiz({ session, level, onAnswer, onNext, onSpeak, onReadingScore, onRea
   </div>;
 }
 
-function FollowRead({ word, confirmed, onStart, onScore, onConfirm }) {
+function FollowRead({ word, confirmed, onStart, onConfirm }) {
   const recognitionRef = useRef(null);
   const transcriptRef = useRef('');
   const errorRef = useRef(null);
@@ -448,9 +447,7 @@ function FollowRead({ word, confirmed, onStart, onScore, onConfirm }) {
         setStatus('idle');
         if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(errorRef.current)) return;
         const scored = scorePronunciation(word, transcriptRef.current);
-        const pointsChange = scored.stars === 0 ? -3 : scored.stars === 1 ? -1 : scored.stars === 3 ? 1 : 0;
-        setResult({ ...scored, transcript: transcriptRef.current || '未识别到语音', pointsChange });
-        onScore(scored.stars);
+        setResult({ ...scored, transcript: transcriptRef.current || '未识别到语音' });
         scored.stars >= 2 ? playCorrectSound() : playErrorSound();
       };
       recognitionRef.current = recognition;
@@ -469,13 +466,8 @@ function FollowRead({ word, confirmed, onStart, onScore, onConfirm }) {
     </button>
     {status === 'listening' && <span className="listening-tip"><i/>正在录音，读完后稍等或点击结束</span>}
     {result?.error && <span className="reading-error">{result.error}</span>}
-    {result && !result.error && <div className={`reading-result stars-${result.stars}`}>
-      <span className="reading-stars" aria-label={`${result.stars} 星`}>{Array.from({ length: 3 }, (_, index) => <Star key={index} fill={index < result.stars ? 'currentColor' : 'none'}/>)}</span>
-      <strong>{result.stars} 星</strong>
-      <small>识别：{result.transcript}</small>
-      <b>{result.pointsChange > 0 ? `+${result.pointsChange} 积分` : result.pointsChange < 0 ? `${result.pointsChange} 积分` : '积分不变'}</b>
-    </div>}
-    {result && !result.error && <button className="confirm-reading" onClick={() => { playClick('success'); onConfirm(); }} disabled={confirmed}>确认</button>}
+    <span className="reading-stars" aria-label={`${result?.stars || 0} 星`}>{Array.from({ length: 3 }, (_, index) => <Star key={index} fill={result && index < result.stars ? 'currentColor' : 'none'}/>)}</span>
+    <button className="confirm-reading" onClick={() => { playClick('success'); onConfirm(result.stars); }} disabled={!result || result.error || confirmed}>提交</button>
   </div>;
 }
 
@@ -494,7 +486,7 @@ function WrongBook({ questions, onReview }) {
 
 function Rewards({ points, claimed }) {
   const rewards = [{ value: 500, title: '玩电脑一次' }, { value: 2000, title: '去游乐场游玩一次' }];
-  return <div className="panel rewards-panel"><header><p>YOUR TREASURE</p><h2>奖励机制</h2><span>认真闯关，积攒属于你的星星</span></header><div className="big-score"><Star fill="currentColor"/><strong>{points}</strong><span>累计积分</span></div><div className="rules"><span>全对 <b>+50</b></span><span>错 1–2 题 <b>+30</b></span><span>错 3–5 题 <b>+10</b></span><span>错 5 题以上 <b>+0</b></span><span>跟读 0 星 <b>-3</b></span><span>跟读 1 星 <b>-1</b></span><span>跟读 2 星 <b>不变</b></span><span>跟读 3 星 <b>+1</b></span></div>{rewards.map((reward) => <div className={`reward-row ${claimed.includes(reward.value) ? 'claimed' : ''}`} key={reward.value}><Gift/><span><strong>{reward.title}</strong><small>{claimed.includes(reward.value) ? '奖励已解锁' : `还差 ${Math.max(0, reward.value - points)} 积分`}</small></span><b>{reward.value}</b></div>)}</div>;
+  return <div className="panel rewards-panel"><header><p>YOUR TREASURE</p><h2>奖励机制</h2><span>认真闯关，积攒属于你的星星</span></header><div className="big-score"><Star fill="currentColor"/><strong>{points}</strong><span>累计积分</span></div><div className="rules"><span>全对 <b>+50</b></span><span>错 1–2 题 <b>+30</b></span><span>错 3–5 题 <b>+10</b></span><span>错 5 题以上 <b>+0</b></span><span>跟读 0 星 <b>+0</b></span><span>跟读 1 星 <b>+1</b></span><span>跟读 2 星 <b>+2</b></span><span>跟读 3 星 <b>+3</b></span></div>{rewards.map((reward) => <div className={`reward-row ${claimed.includes(reward.value) ? 'claimed' : ''}`} key={reward.value}><Gift/><span><strong>{reward.title}</strong><small>{claimed.includes(reward.value) ? '奖励已解锁' : `还差 ${Math.max(0, reward.value - points)} 积分`}</small></span><b>{reward.value}</b></div>)}</div>;
 }
 
 function RewardModal({ threshold, onClose }) {
